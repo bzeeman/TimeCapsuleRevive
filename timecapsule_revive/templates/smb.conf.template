@@ -1,0 +1,40 @@
+[global]
+    server string = {server_string}
+    workgroup = WORKGROUP
+
+    # SMBv2/SMBv3 only — no SMBv1
+    server min protocol = SMB2
+    server max protocol = SMB3
+
+    # Bind to high ports (PF redirects 445->1445, 139->1139)
+    smb ports = 1445 1139
+
+    # Minimal processes for 256MB RAM
+    max smbd processes = 3
+
+    # Apple / Time Machine optimizations
+    vfs objects = catia fruit streams_xattr
+    fruit:metadata = stream
+    fruit:model = TimeCapsule
+    fruit:veto_appledouble = no
+    fruit:nfs_aces = no
+    fruit:posix_rename = yes
+    fruit:zero_file_id = yes
+
+    # Logging
+    log file = /tmp/samba/log.%m
+    max log size = 50
+    log level = 1
+
+    # Security
+    security = user
+    map to guest = Bad User
+
+[TimeMachine]
+    path = {share_path}
+    browseable = yes
+    writable = yes
+    vfs objects = catia fruit streams_xattr
+    fruit:time machine = yes
+    fruit:time machine max size = {max_size}
+    valid users = root

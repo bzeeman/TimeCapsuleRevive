@@ -1,0 +1,6 @@
+# TimeCapsuleRevive — PF redirect rules
+# Redirect standard SMB ports to Samba's high ports
+# AFP and Apple's built-in file sharing remain untouched
+
+rdr pass on bridge0 proto tcp from any to any port 445 -> 127.0.0.1 port 1445
+rdr pass on bridge0 proto tcp from any to any port 139 -> 127.0.0.1 port 1139

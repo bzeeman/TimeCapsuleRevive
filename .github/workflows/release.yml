@@ -1,0 +1,46 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            git curl build-essential bison flex \
+            python3 python-is-python3 \
+            pkg-config libtool autoconf automake \
+            xz-utils file
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Samba for NetBSD evbarm
+        run: |
+          chmod +x build_samba.sh
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/dist" ./build_samba.sh
+        env:
+          WORKDIR: /tmp/tc-build
+
+      - name: Verify binary
+        run: |
+          file dist/smbd
+          cat dist/SHA256SUMS
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/smbd
+            dist/SHA256SUMS

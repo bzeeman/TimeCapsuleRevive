@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "timecapsule-revive"
+version = "0.1.0"
+description = "Rescue Apple Time Capsules from e-waste by deploying modern Samba (SMBv3) with Time Machine support"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+    "zeroconf>=0.80.0",
+]
+
+[project.scripts]
+timecapsule-revive = "timecapsule_revive.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/bzeeman/TimeCapsuleRevive"
+Issues = "https://github.com/bzeeman/TimeCapsuleRevive/issues"

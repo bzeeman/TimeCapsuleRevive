@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# TimeCapsuleRevive — Samba startup script for NetBSD
+# Installed to /mnt/Flash/rc.samba
+
+# Load PF redirect rules (445->1445, 139->1139)
+if [ -f /mnt/Flash/pf.conf ]; then
+    /sbin/pfctl -ef /mnt/Flash/pf.conf 2>/dev/null
+fi
+
+# Create log directory
+mkdir -p /tmp/samba
+
+# Set library path for Samba dependencies
+export LD_LIBRARY_PATH={lib_path}
+
+# Start Samba in daemon mode
+{smbd_path} -D -s {conf_path}
