@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timecapsule-revive"
-version = "0.1.0"
+version = "0.2.0"
 description = "Rescue Apple Time Capsules from e-waste by deploying modern Samba (SMBv3) with Time Machine support"
 readme = "README.md"
 license = "MIT"

@@ -44,6 +44,70 @@ def main(argv: list[str] | None = None) -> None:
         "--host", required=True, help="IP/hostname of the Time Capsule"
     )
 
+    # monitor — check and start Samba (single check or continuous watch)
+    monitor_parser = subparsers.add_parser(
+        "monitor", help="Monitor Time Capsule and auto-start Samba"
+    )
+    monitor_parser.add_argument(
+        "--host", required=True, help="IP/hostname of the Time Capsule"
+    )
+    monitor_parser.add_argument(
+        "--once", action="store_true",
+        help="Check once and exit (for launchd agent use)",
+    )
+    monitor_parser.add_argument(
+        "--interval", type=int, default=60,
+        help="Seconds between checks in watch mode (default: 60)",
+    )
+
+    # install-agent — macOS launchd agent
+    agent_parser = subparsers.add_parser(
+        "install-agent",
+        help="Install macOS launchd agent for automatic Samba restart",
+    )
+    agent_parser.add_argument(
+        "--host", required=True, help="IP/hostname of the Time Capsule"
+    )
+    agent_parser.add_argument(
+        "--interval", type=int, default=120,
+        help="Seconds between checks (default: 120)",
+    )
+
+    # uninstall-agent
+    subparsers.add_parser(
+        "uninstall-agent", help="Remove the macOS launchd agent"
+    )
+
+    # shares — manage SMB shares
+    shares_parser = subparsers.add_parser(
+        "shares", help="Manage SMB shares (list, add, remove)"
+    )
+    shares_sub = shares_parser.add_subparsers(dest="shares_command")
+
+    shares_list = shares_sub.add_parser("list", help="List current shares")
+    shares_list.add_argument("--host", required=True)
+
+    shares_add = shares_sub.add_parser("add", help="Add a new share")
+    shares_add.add_argument("--host", required=True)
+    shares_add.add_argument("--name", required=True, help="Share name")
+    shares_add.add_argument("--path", required=True, help="Path on device")
+    shares_add.add_argument(
+        "--time-machine", action="store_true",
+        help="Enable Time Machine support for this share",
+    )
+    shares_add.add_argument(
+        "--readonly", action="store_true", help="Make share read-only"
+    )
+
+    shares_remove = shares_sub.add_parser("remove", help="Remove a share")
+    shares_remove.add_argument("--host", required=True)
+    shares_remove.add_argument("--name", required=True, help="Share name")
+
+    shares_volumes = shares_sub.add_parser(
+        "volumes", help="List mounted volumes on device"
+    )
+    shares_volumes.add_argument("--host", required=True)
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -57,6 +121,14 @@ def main(argv: list[str] | None = None) -> None:
             _cmd_discover()
         elif args.command == "verify":
             _cmd_verify(args)
+        elif args.command == "monitor":
+            _cmd_monitor(args)
+        elif args.command == "install-agent":
+            _cmd_install_agent(args)
+        elif args.command == "uninstall-agent":
+            _cmd_uninstall_agent()
+        elif args.command == "shares":
+            _cmd_shares(args)
     except KeyboardInterrupt:
         print("\nAborted.")
         sys.exit(130)
@@ -128,3 +200,63 @@ def _cmd_verify(args: argparse.Namespace) -> None:
     success = verify.verify_smb(args.host)
     verify.print_status(args.host, success)
     sys.exit(0 if success else 1)
+
+
+def _cmd_monitor(args: argparse.Namespace) -> None:
+    from timecapsule_revive import monitor
+
+    if args.once:
+        success = monitor.check_and_start(args.host)
+        sys.exit(0 if success else 1)
+    else:
+        monitor.watch(args.host, interval=args.interval)
+
+
+def _cmd_install_agent(args: argparse.Namespace) -> None:
+    from timecapsule_revive import agent
+
+    password = getpass.getpass("AirPort admin password (stored in Keychain): ")
+    agent.install(args.host, password, interval=args.interval)
+
+
+def _cmd_uninstall_agent() -> None:
+    from timecapsule_revive import agent
+
+    agent.uninstall()
+
+
+def _cmd_shares(args: argparse.Namespace) -> None:
+    from timecapsule_revive import shares
+
+    if not args.shares_command:
+        print("Usage: timecapsule-revive shares {list,add,remove,volumes}")
+        sys.exit(1)
+
+    if args.shares_command == "list":
+        share_list = shares.list_shares(args.host)
+        if not share_list:
+            print("No shares configured.")
+            return
+        for s in share_list:
+            tm = " [Time Machine]" if s.get("timemachine") else ""
+            print(f"  [{s['name']}] {s['path']}{tm}")
+
+    elif args.shares_command == "add":
+        shares.add_share(
+            args.host,
+            name=args.name,
+            path=args.path,
+            timemachine=args.time_machine,
+            readonly=args.readonly,
+        )
+
+    elif args.shares_command == "remove":
+        shares.remove_share(args.host, name=args.name)
+
+    elif args.shares_command == "volumes":
+        vols = shares.list_volumes(args.host)
+        if not vols:
+            print("No volumes mounted.")
+            return
+        for v in vols:
+            print(f"  {v['mountpoint']}  ({v['capacity']} used, {v['device']})")

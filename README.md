@@ -21,7 +21,7 @@ TimeCapsuleRevive automates the following steps on your Time Capsule:
 
 - Does **not** disable AFP (Apple Filing Protocol) — still needed for internal disk auto-mount
 - Does **not** modify the Time Capsule firmware or flash storage
-- Does **not** store your password anywhere — collected via `getpass`, used only for the current session
+- Does **not** store your password by default — collected via `getpass`, used only for the current session (the optional launchd agent and menubar app store it in macOS Keychain)
 
 ### Files deployed to the device
 
@@ -92,7 +92,19 @@ Your Time Capsule is now serving SMBv3 on the standard port (445). On macOS:
 
 ### After a Reboot
 
-The Time Capsule's root filesystem is a ramdisk, so services don't auto-start after a reboot. To restore SMBv3:
+The Time Capsule's root filesystem is a ramdisk, so Samba doesn't auto-start after a reboot. You have three options:
+
+**Option 1: Automatic monitoring (recommended)**
+
+Install the macOS launchd agent to detect reboots and restart Samba automatically:
+
+```bash
+timecapsule-revive install-agent --host YOUR_TC_IP
+```
+
+This stores your password in the macOS Keychain and checks the Time Capsule every 2 minutes. To remove: `timecapsule-revive uninstall-agent`.
+
+**Option 2: Manual SSH restart**
 
 ```bash
 ssh -oHostKeyAlgorithms=+ssh-rsa -oKexAlgorithms=+diffie-hellman-group14-sha1 \
@@ -100,14 +112,51 @@ ssh -oHostKeyAlgorithms=+ssh-rsa -oKexAlgorithms=+diffie-hellman-group14-sha1 \
     "/Volumes/dk2/samba/rc_samba.sh"
 ```
 
-Or run `timecapsule-revive setup --host YOUR_TC_IP` again (it will detect the existing installation).
+**Option 3: Continuous watch mode**
+
+```bash
+timecapsule-revive monitor --host YOUR_TC_IP
+```
+
+This runs in the foreground and restarts Samba whenever it detects the service is down.
+
+### Managing Shares
+
+By default, the internal disk is shared as `TimeMachine`. You can add additional shares (e.g., for a USB drive plugged into the Time Capsule):
+
+```bash
+# List mounted volumes on the device
+timecapsule-revive shares volumes --host YOUR_TC_IP
+
+# Add a USB drive as a share
+timecapsule-revive shares add --host YOUR_TC_IP --name USB --path /Volumes/dk3
+
+# Add with Time Machine support
+timecapsule-revive shares add --host YOUR_TC_IP --name USB-TM --path /Volumes/dk3 --time-machine
+
+# List current shares
+timecapsule-revive shares list --host YOUR_TC_IP
+
+# Remove a share
+timecapsule-revive shares remove --host YOUR_TC_IP --name USB
+```
+
+### macOS Menubar App
+
+For a native GUI experience, the `TimeCapsuleApp/` directory contains a SwiftUI menubar app. Open in Xcode and build:
+
+```bash
+cd TimeCapsuleApp && xed .
+```
+
+The app shows Time Capsule status in your menu bar, auto-starts Samba after reboots, lets you manage shares, and stores your password in the macOS Keychain.
 
 ## Security Notes
 
 - **Local network only.** The ACP protocol sends the admin password with XOR encoding (effectively plaintext). Only use on trusted networks.
 - **Binary verification.** The Samba binary is verified against SHA256 checksums from the GitHub Release before deployment.
 - **SSH access.** SSH is enabled temporarily for deployment. Use `--disable-ssh-after` to disable it when done.
-- **No credentials stored.** Your password is collected via `getpass()` and never written to disk or logs.
+- **Credentials handled securely.** Your password is collected via `getpass()` during setup and never written to disk or logs. The optional launchd agent and menubar app store it in the macOS Keychain (encrypted, protected by your login password).
 - **Guest access.** The TimeMachine share allows guest access (no authentication) for ease of use. The share is only accessible on your local network.
 
 ## How It Works (Technical Details)
