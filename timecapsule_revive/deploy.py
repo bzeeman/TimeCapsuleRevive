@@ -4,15 +4,14 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
 
 # Paths on the Time Capsule
-FLASH_DIR = "/mnt/Flash"
 SAMBA_DIR = "/Volumes/dk2/samba"
 SHARE_ROOT = "/Volumes/dk2/ShareRoot"
-LIB_DIR = "/Volumes/dk2/lib"
 
 GITHUB_REPO = "bzeeman/TimeCapsuleRevive"
 RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -25,36 +24,22 @@ def _load_template(name: str) -> str:
 
 
 def generate_smb_conf(
-    server_string: str = "Time Capsule SMB",
+    netbios_name: str = "THE-TARDIS",
     share_path: str = SHARE_ROOT,
     max_size: str = "1.5T",
 ) -> str:
     """Generate smb.conf from template."""
     template = _load_template("smb.conf.template")
     return template.format(
-        server_string=server_string,
+        netbios_name=netbios_name,
         share_path=share_path,
         max_size=max_size,
     )
 
 
-def generate_rc_script(
-    smbd_path: str = f"{SAMBA_DIR}/sbin/smbd",
-    conf_path: str = f"{SAMBA_DIR}/etc/smb.conf",
-    lib_path: str = LIB_DIR,
-) -> str:
-    """Generate the rc.d startup script from template."""
-    template = _load_template("rc_samba.template")
-    return template.format(
-        smbd_path=smbd_path,
-        conf_path=conf_path,
-        lib_path=lib_path,
-    )
-
-
-def generate_pf_rules() -> str:
-    """Generate PF redirect rules from template."""
-    return _load_template("pf_rules.template")
+def generate_rc_script() -> str:
+    """Generate the startup script from template."""
+    return _load_template("rc_samba.template")
 
 
 def download_release_binary(dest_dir: str) -> Path:
@@ -121,7 +106,6 @@ def _verify_checksum(file_path: Path, checksum_url: str) -> None:
             expected = parts[0].lower()
             break
         elif len(parts) == 1:
-            # Single hash, no filename
             expected = parts[0].lower()
             break
 
@@ -140,38 +124,63 @@ def _verify_checksum(file_path: Path, checksum_url: str) -> None:
     print(f"Checksum verified: {actual[:16]}...")
 
 
-def _ssh_command(host: str) -> list[str]:
-    """Base SSH command with Time Capsule-compatible options."""
+def _ssh_base(host: str) -> list[str]:
+    """Base SSH command with Time Capsule-compatible options.
+
+    The Time Capsule runs OpenSSH 4.4 which only supports ssh-rsa and ssh-dss
+    host keys, and diffie-hellman-group14-sha1 key exchange. Modern OpenSSH
+    has removed ssh-dss entirely, so we use ssh-rsa.
+    """
     return [
         "ssh",
-        "-oHostKeyAlgorithms=+ssh-dss",
+        "-oHostKeyAlgorithms=+ssh-rsa",
+        "-oKexAlgorithms=+diffie-hellman-group14-sha1",
         "-oPubkeyAuthentication=no",
         "-oStrictHostKeyChecking=accept-new",
         f"root@{host}",
     ]
 
 
-def _scp_command(host: str, src: str, dest: str) -> list[str]:
-    """SCP command for uploading to the Time Capsule."""
-    return [
-        "scp",
-        "-oHostKeyAlgorithms=+ssh-dss",
-        "-oPubkeyAuthentication=no",
-        "-oStrictHostKeyChecking=accept-new",
-        src,
-        f"root@{host}:{dest}",
-    ]
-
-
-def _run_ssh(host: str, command: str) -> None:
+def _run_ssh(host: str, command: str) -> subprocess.CompletedProcess:
     """Run a command on the Time Capsule via SSH."""
-    subprocess.run(
-        [*_ssh_command(host), command],
+    return subprocess.run(
+        [*_ssh_base(host), command],
         check=True,
+        capture_output=True,
+        text=True,
     )
 
 
-def deploy(host: str) -> None:
+def _upload_file(host: str, local_path: Path, remote_path: str) -> None:
+    """Upload a file to the Time Capsule via dd over SSH pipe.
+
+    The device's OpenSSH 4.4 doesn't support modern scp/sftp. We pipe the
+    file content through SSH to dd on the device.
+    """
+    with open(local_path, "rb") as f:
+        proc = subprocess.run(
+            [*_ssh_base(host), f"dd of={remote_path} bs=65536"],
+            stdin=f,
+            capture_output=True,
+        )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Failed to upload {local_path.name}: {proc.stderr.decode()}"
+        )
+
+
+def _upload_text(host: str, content: str, remote_path: str) -> None:
+    """Upload text content to a file on the Time Capsule."""
+    proc = subprocess.run(
+        [*_ssh_base(host), f"dd of={remote_path} bs=4096"],
+        input=content.encode(),
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"Failed to write {remote_path}: {proc.stderr.decode()}")
+
+
+def deploy(host: str, netbios_name: str = "THE-TARDIS") -> None:
     """Full deployment: download binary, generate configs, upload, install.
 
     This is the main entry point for the deploy phase.
@@ -181,76 +190,68 @@ def deploy(host: str) -> None:
         smbd_path = download_release_binary(staging)
 
         # Generate configs
-        smb_conf = generate_smb_conf()
+        smb_conf = generate_smb_conf(netbios_name=netbios_name)
         rc_script = generate_rc_script()
-        pf_rules = generate_pf_rules()
 
-        # Write configs to staging
-        smb_conf_path = Path(staging) / "smb.conf"
-        smb_conf_path.write_text(smb_conf)
-
-        rc_script_path = Path(staging) / "rc.samba"
-        rc_script_path.write_text(rc_script)
-
-        pf_rules_path = Path(staging) / "pf.conf"
-        pf_rules_path.write_text(pf_rules)
-
-        # Create directories on device
+        # Mount disk if needed and create directories
         print("Preparing device directories...")
-        _run_ssh(host, f"mkdir -p {SAMBA_DIR}/sbin {SAMBA_DIR}/etc /tmp/samba")
-
-        # Upload files
-        print("Uploading Samba binary...")
-        subprocess.run(
-            _scp_command(host, str(smbd_path), f"{SAMBA_DIR}/sbin/smbd"),
-            check=True,
+        _run_ssh(
+            host,
+            "if [ ! -d /Volumes/dk2/ShareRoot ]; then "
+            "mkdir -p /Volumes/dk2 && "
+            "/sbin/mount_hfs /dev/dk2 /Volumes/dk2; "
+            "fi"
+        )
+        _run_ssh(
+            host,
+            f"mkdir -p {SAMBA_DIR}/sbin {SAMBA_DIR}/etc "
+            f"{SAMBA_DIR}/var/run {SAMBA_DIR}/var/lock "
+            f"{SAMBA_DIR}/var/cores/smbd {SAMBA_DIR}/private"
         )
 
+        # Kill old Apple CIFS services to free port 445/139
+        print("Stopping old SMBv1 service...")
+        _run_ssh(
+            host,
+            "for pid in $(/bin/ps ax 2>/dev/null "
+            "| grep '[w]cifsfs\\|[w]cifsnd' "
+            "| awk '{print $1}'); do kill $pid 2>/dev/null; done; "
+            "sleep 2"
+        )
+
+        # Upload binary via dd pipe (no scp on device)
+        print("Uploading Samba binary (~14MB)...")
+        _upload_file(host, smbd_path, f"{SAMBA_DIR}/sbin/smbd")
+        _run_ssh(host, f"chmod 755 {SAMBA_DIR}/sbin/smbd")
+
+        # Verify binary runs
+        result = _run_ssh(host, f"{SAMBA_DIR}/sbin/smbd --version")
+        print(f"  {result.stdout.strip()}")
+
+        # Upload configuration
         print("Uploading configuration...")
-        subprocess.run(
-            _scp_command(host, str(smb_conf_path), f"{SAMBA_DIR}/etc/smb.conf"),
-            check=True,
-        )
+        _upload_text(host, smb_conf, f"{SAMBA_DIR}/etc/smb.conf")
 
-        print("Uploading PF rules...")
-        subprocess.run(
-            _scp_command(host, str(pf_rules_path), f"{FLASH_DIR}/pf.conf"),
-            check=True,
-        )
-
+        # Upload startup script
         print("Uploading startup script...")
-        subprocess.run(
-            _scp_command(host, str(rc_script_path), f"{FLASH_DIR}/rc.samba"),
-            check=True,
+        _upload_text(host, rc_script, f"{SAMBA_DIR}/rc_samba.sh")
+        _run_ssh(host, f"chmod 755 {SAMBA_DIR}/rc_samba.sh")
+
+        # Add hostname entry for fast DNS resolution
+        _run_ssh(
+            host,
+            f"echo '{host} {netbios_name.lower()}' >> /etc/hosts"
         )
 
-        # Install: set permissions, load PF, hook into boot, start Samba
-        print("Installing PF redirect rules...")
-        _run_ssh(host, f"chmod +x {FLASH_DIR}/rc.samba")
-        _run_ssh(host, f"pfctl -ef {FLASH_DIR}/pf.conf")
-
-        print("Installing boot persistence...")
-        _install_boot_hook(host)
-
+        # Start Samba
         print("Starting Samba...")
         _run_ssh(
             host,
-            f"export LD_LIBRARY_PATH={LIB_DIR} && "
-            f"{SAMBA_DIR}/sbin/smbd -D -s {SAMBA_DIR}/etc/smb.conf",
+            f"{SAMBA_DIR}/sbin/smbd -D "
+            f"-s {SAMBA_DIR}/etc/smb.conf "
+            f"--log-basename={SAMBA_DIR}/var",
         )
 
         print("Deployment complete.")
-
-
-def _install_boot_hook(host: str) -> None:
-    """Install rc.samba into the boot sequence.
-
-    Appends a call to /mnt/Flash/rc.samba in /etc/rc.local if not already
-    present. On NetBSD, /etc/rc.local runs after standard rc.d scripts.
-    """
-    check = subprocess.run(
-        [*_ssh_command(host), "grep -q rc.samba /etc/rc.local 2>/dev/null"],
-        capture_output=True,
-    )
-    if check.returncode != 0:
-        _run_ssh(host, "echo '/mnt/Flash/rc.samba' >> /etc/rc.local")
+        print(f"  SMBv3 share available at: smb://{host}/TimeMachine")
+        print(f"  After reboot, SSH in and run: {SAMBA_DIR}/rc_samba.sh")

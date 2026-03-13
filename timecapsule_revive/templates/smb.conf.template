@@ -1,40 +1,57 @@
 [global]
-    server string = {server_string}
+    server string = Time Capsule SMB
     workgroup = WORKGROUP
+    netbios name = {netbios_name}
 
     # SMBv2/SMBv3 only — no SMBv1
-    server min protocol = SMB2
+    server min protocol = SMB2_10
     server max protocol = SMB3
 
-    # Bind to high ports (PF redirects 445->1445, 139->1139)
-    smb ports = 1445 1139
+    # Standard ports (old wcifsfs/wcifsnd killed at startup)
+    smb ports = 445 139
 
-    # Minimal processes for 256MB RAM
-    max smbd processes = 3
-
-    # Apple / Time Machine optimizations
-    vfs objects = catia fruit streams_xattr
-    fruit:metadata = stream
-    fruit:model = TimeCapsule
-    fruit:veto_appledouble = no
-    fruit:nfs_aces = no
-    fruit:posix_rename = yes
-    fruit:zero_file_id = yes
-
-    # Logging
-    log file = /tmp/samba/log.%m
-    max log size = 50
-    log level = 1
-
-    # Security
+    # Security — guest access for Time Machine
     security = user
     map to guest = Bad User
 
+    # Logging
+    log file = /Volumes/dk2/samba/var/log.smbd
+    max log size = 5000
+    log level = 1
+
+    # Minimal processes for 256MB RAM
+    max smbd processes = 3
+    deadtime = 15
+
+    # Directories on persistent storage
+    pid directory = /Volumes/dk2/samba/var/run
+    lock directory = /Volumes/dk2/samba/var/lock
+    private dir = /Volumes/dk2/samba/private
+    state directory = /Volumes/dk2/samba/var
+    cache directory = /Volumes/dk2/samba/var
+
+    # Apple device model for Finder icon
+    fruit:model = TimeCapsule
+
+    # No printers
+    load printers = no
+    printing = bsd
+    printcap name = /dev/null
+
 [TimeMachine]
+    comment = Time Machine Backup
     path = {share_path}
     browseable = yes
     writable = yes
-    vfs objects = catia fruit streams_xattr
+    guest ok = yes
+    force user = root
+    create mask = 0664
+    directory mask = 0775
+    vfs objects = fruit streams_xattr
     fruit:time machine = yes
     fruit:time machine max size = {max_size}
-    valid users = root
+    fruit:metadata = stream
+    fruit:posix_rename = yes
+    fruit:veto_appledouble = no
+    fruit:wipe_intentionally_left_blank_rfork = yes
+    fruit:delete_empty_adfiles = yes

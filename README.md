@@ -12,32 +12,30 @@ TimeCapsuleRevive automates the following steps on your Time Capsule:
 2. **Enables SSH** temporarily using the AirPort Configuration Protocol (ACP)
 3. **Downloads** a pre-compiled Samba binary (cross-compiled for NetBSD/ARM) from GitHub Releases
 4. **Verifies** the binary's SHA256 checksum before deployment
-5. **Uploads** Samba + configuration files to the device via SCP
-6. **Installs** PF (packet filter) redirect rules: port 445 → 1445, port 139 → 1139
-7. **Starts** Samba with SMBv3 and Time Machine support (via `vfs_fruit`)
-8. **Persists** the configuration across reboots via an rc.local hook
-9. **Verifies** SMBv3 is responding before declaring success
+5. **Uploads** Samba + configuration files to the device via SSH (`dd` pipe — the device's OpenSSH 4.4 doesn't support modern scp)
+6. **Kills** the old Apple SMBv1 service (`wcifsfs`/`wcifsnd`) to free port 445
+7. **Starts** Samba with SMBv3 and Time Machine support (via `vfs_fruit`) on standard ports (445/139)
+8. **Verifies** SMBv3 is responding before declaring success
 
 ### What it does NOT do
 
-- Does **not** disable AFP or Apple's built-in file sharing (required for disk auto-mount)
-- Does **not** modify the Time Capsule firmware
-- Does **not** store your password anywhere — it's collected via `getpass` and used only for the current session
+- Does **not** disable AFP (Apple Filing Protocol) — still needed for internal disk auto-mount
+- Does **not** modify the Time Capsule firmware or flash storage
+- Does **not** store your password anywhere — collected via `getpass`, used only for the current session
 
 ### Files deployed to the device
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `smbd` | `/Volumes/dk2/samba/sbin/smbd` | Samba server binary |
+| `smbd` | `/Volumes/dk2/samba/sbin/smbd` | Samba server binary (14MB, static ARM) |
 | `smb.conf` | `/Volumes/dk2/samba/etc/smb.conf` | Samba configuration |
-| `pf.conf` | `/mnt/Flash/pf.conf` | PF port redirect rules |
-| `rc.samba` | `/mnt/Flash/rc.samba` | Boot startup script |
+| `rc_samba.sh` | `/Volumes/dk2/samba/rc_samba.sh` | Startup script (run after reboot) |
 
 ## Prerequisites
 
 - Python 3.9+
 - `pip` or `pipx`
-- An SSH client (`ssh`, `scp`) — included on macOS and most Linux distros
+- An SSH client (`ssh`) — included on macOS and most Linux distros
 - An Apple Time Capsule on the same local network
 - The AirPort admin password for your Time Capsule
 
@@ -85,29 +83,47 @@ timecapsule-revive verify --host 10.0.1.1
 
 ## After Setup
 
-1. Open **System Settings** → **General** → **Time Machine**
-2. Click **+** to add a backup disk
-3. Select your Time Capsule (it will appear as an SMB share)
-4. Enter `root` as the username and your AirPort admin password
+Your Time Capsule is now serving SMBv3 on the standard port (445). On macOS:
+
+1. Open **Finder** → **Go** → **Connect to Server** (⌘K)
+2. Enter `smb://your-time-capsule-ip/TimeMachine`
+3. Connect as **Guest** (no password needed)
+4. To add as a Time Machine destination: **System Settings** → **General** → **Time Machine** → **+**
+
+### After a Reboot
+
+The Time Capsule's root filesystem is a ramdisk, so services don't auto-start after a reboot. To restore SMBv3:
+
+```bash
+ssh -oHostKeyAlgorithms=+ssh-rsa -oKexAlgorithms=+diffie-hellman-group14-sha1 \
+    -oPubkeyAuthentication=no root@YOUR_TC_IP \
+    "/Volumes/dk2/samba/rc_samba.sh"
+```
+
+Or run `timecapsule-revive setup --host YOUR_TC_IP` again (it will detect the existing installation).
 
 ## Security Notes
 
-- **Local network only.** The ACP protocol sends the admin password with trivial XOR encoding (effectively plaintext). Only use this tool on trusted networks.
+- **Local network only.** The ACP protocol sends the admin password with XOR encoding (effectively plaintext). Only use on trusted networks.
 - **Binary verification.** The Samba binary is verified against SHA256 checksums from the GitHub Release before deployment.
-- **SSH access.** SSH is enabled temporarily for deployment. Use `--disable-ssh-after` to automatically disable it when done.
+- **SSH access.** SSH is enabled temporarily for deployment. Use `--disable-ssh-after` to disable it when done.
 - **No credentials stored.** Your password is collected via `getpass()` and never written to disk or logs.
+- **Guest access.** The TimeMachine share allows guest access (no authentication) for ease of use. The share is only accessible on your local network.
 
 ## How It Works (Technical Details)
 
-The Time Capsule runs NetBSD 6.0 on an ARM Cortex-A9 (earmv4 ABI) with 256MB RAM. Apple's original file sharing uses AFP and SMBv1, which modern macOS no longer supports.
+The Time Capsule runs NetBSD 4.0_STABLE on an ARM Cortex-A9 (OABI, not EABI) with 256MB RAM and a 32MB flash chip. Apple's original file sharing uses AFP (port 548) and SMBv1 (port 445 via `wcifsfs`/`wcifsnd`), which modern macOS no longer supports.
 
-TimeCapsuleRevive deploys a statically-compiled Samba 4.8 binary configured for:
+TimeCapsuleRevive deploys a statically-compiled Samba 4.8.12 binary with several patches for NetBSD 4.0 compatibility:
+
+- **OABI ARM binary** — NetBSD 5 toolchain (last to support old ABI), ELF patched for NB4 kernel
 - **SMBv2/SMBv3 only** — no SMBv1
-- **`vfs_fruit`** — Apple's SMB extension for Time Machine compatibility
-- **High ports** (1445/1139) with PF redirects from standard ports — avoids conflicting with Apple's built-in services
-- **Minimal memory** — capped at 3 smbd processes to respect the 256MB RAM constraint
-
-The pre-compiled binary is cross-compiled from a Debian CI environment using the NetBSD evbarm toolchain, ensuring it runs natively on the Time Capsule's ARM processor.
+- **`vfs_fruit`** and **`streams_xattr`** — Apple's SMB extensions for Time Machine
+- **Standard ports** (445/139) — old Apple CIFS service killed at startup
+- **Minimal memory** — capped at 3 smbd processes for 256MB RAM
+- **HFS+ compatible** — ownership checks bypassed (HFS+ returns uid=4294967295)
+- **talloc hardened** — reload_services disabled after initial load to prevent use-after-free
+- **realpath fix** — NetBSD 4.0 `realpath()` doesn't support NULL argument
 
 ## Manual ACP Fallback
 
@@ -123,15 +139,16 @@ If the automated ACP client fails to enable SSH (e.g., due to firmware differenc
 The CI pipeline cross-compiles Samba automatically on each release tag. To build manually:
 
 ```bash
-# Requires: Debian/Ubuntu, git, curl, build-essential, bison, flex, python3
+# Requires: Debian bullseye container (for Python 2), git, curl, build-essential
+# The build takes ~2 hours on first run (toolchain + sysroot from source)
 OUTPUT_DIR=./dist ./build_samba.sh
 ```
 
-This produces `dist/smbd` (a static ARM binary) and `dist/SHA256SUMS`.
+This produces `dist/smbd` (a 14MB static ARM binary) and `dist/SHA256SUMS`.
 
 ## Why Save Time Capsules?
 
-Millions of Time Capsules are fully functional hardware — reliable hard drives in well-designed enclosures with built-in networking. The only reason they're "obsolete" is a software compatibility gap that takes about 17MB of Samba binary to fix.
+Millions of Time Capsules are fully functional hardware — reliable hard drives in well-designed enclosures with built-in networking. The only reason they're "obsolete" is a software compatibility gap that takes 14MB of Samba binary to fix.
 
 Every Time Capsule rescued from e-waste is:
 - A hard drive kept out of a landfill

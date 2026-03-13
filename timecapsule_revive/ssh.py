@@ -79,7 +79,8 @@ def _ssh_command(host: str) -> list[str]:
     """Build the base SSH command with Time Capsule-compatible options."""
     return [
         "ssh",
-        "-oHostKeyAlgorithms=+ssh-dss",
+        "-oHostKeyAlgorithms=+ssh-rsa",
+        "-oKexAlgorithms=+diffie-hellman-group14-sha1",
         "-oPubkeyAuthentication=no",
         "-oStrictHostKeyChecking=accept-new",
         f"root@{host}",

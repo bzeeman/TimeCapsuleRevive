@@ -1,18 +1,38 @@
 #!/bin/sh
 #
-# TimeCapsuleRevive — Samba startup script for NetBSD
-# Installed to /mnt/Flash/rc.samba
+# TimeCapsuleRevive — Samba startup script for NetBSD on Time Capsule
+# Run this after reboot to restore SMBv3 service.
 
-# Load PF redirect rules (445->1445, 139->1139)
-if [ -f /mnt/Flash/pf.conf ]; then
-    /sbin/pfctl -ef /mnt/Flash/pf.conf 2>/dev/null
+# Wait for disk to be mounted
+i=0
+while [ ! -d /Volumes/dk2/samba/sbin ]; do
+    sleep 2
+    i=$((i+1))
+    if [ $i -gt 30 ]; then
+        echo "Timeout waiting for disk mount" >&2
+        exit 1
+    fi
+done
+
+# Kill old Apple CIFS services to free port 445/139
+for pid in $(/bin/ps ax 2>/dev/null | grep '[w]cifsfs\|[w]cifsnd' | awk '{print $1}'); do
+    kill $pid 2>/dev/null
+done
+sleep 2
+
+# Mount disk if needed (shouldn't be, but just in case)
+if [ ! -d /Volumes/dk2/ShareRoot ]; then
+    /sbin/mount_hfs /dev/dk2 /Volumes/dk2
+    sleep 1
 fi
 
-# Create log directory
-mkdir -p /tmp/samba
-
-# Set library path for Samba dependencies
-export LD_LIBRARY_PATH={lib_path}
+# Create required directories
+mkdir -p /Volumes/dk2/samba/var/run
+mkdir -p /Volumes/dk2/samba/var/lock
+mkdir -p /Volumes/dk2/samba/var/cores/smbd
+mkdir -p /Volumes/dk2/samba/private
 
 # Start Samba in daemon mode
-{smbd_path} -D -s {conf_path}
+/Volumes/dk2/samba/sbin/smbd -D \
+    -s /Volumes/dk2/samba/etc/smb.conf \
+    --log-basename=/Volumes/dk2/samba/var

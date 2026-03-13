@@ -12,16 +12,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: debian:bookworm
+      image: debian:bullseye
     steps:
       - name: Install system dependencies
         run: |
           apt-get update
           apt-get install -y \
             git curl build-essential bison flex \
-            python3 python-is-python3 \
+            python2 python3 \
             pkg-config libtool autoconf automake \
-            xz-utils file
+            xz-utils file zlib1g-dev
 
       - name: Checkout
         uses: actions/checkout@v4

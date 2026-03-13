@@ -26,7 +26,7 @@ _ACP_STATIC_KEY = bytes.fromhex("5b6faf5d9d5b0e1351f2da1de7e8d673")
 
 # Header: magic(4s) version(i) hdr_checksum(i) body_checksum(i) body_size(i)
 #          flags(i) unused(i) command(i) error(i) padding(12x) key(32s) padding(48x)
-_HEADER_FORMAT = struct.Struct("!4s8i12x32s48x")
+_HEADER_FORMAT = struct.Struct("!4s8I12x32s48x")
 _HEADER_SIZE = 128
 
 # Property element header: name(4s) flags(I) size(I)
