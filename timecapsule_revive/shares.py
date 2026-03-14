@@ -138,7 +138,7 @@ def _restart_samba(host: str) -> None:
     _run_ssh(
         host,
         "for pid in $(/bin/ps ax 2>/dev/null "
-        "| awk '/\\/smbd/ && !/awk/ {print $1}'); "
+        "| sed -n '/\\/smbd/s/^ *\\([0-9]*\\) .*/\\1/p'); "
         "do kill $pid 2>/dev/null; done; sleep 1; "
         f"{SAMBA_DIR}/sbin/smbd -D "
         f"-s {SAMBA_DIR}/etc/smb.conf "

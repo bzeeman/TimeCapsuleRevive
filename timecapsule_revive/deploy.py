@@ -210,12 +210,14 @@ def deploy(host: str, netbios_name: str = "THE-TARDIS") -> None:
         )
 
         # Kill old Apple CIFS services to free port 445/139
+        # Note: TC has no grep or awk — use sed
         print("Stopping old SMBv1 service...")
         _run_ssh(
             host,
             "for pid in $(/bin/ps ax 2>/dev/null "
-            "| grep '[w]cifsfs\\|[w]cifsnd' "
-            "| awk '{print $1}'); do kill $pid 2>/dev/null; done; "
+            "| sed -n '/[w]cifsfs/s/^ *\\([0-9]*\\) .*/\\1/p; "
+            "/[w]cifsnd/s/^ *\\([0-9]*\\) .*/\\1/p'); "
+            "do kill $pid 2>/dev/null; done; "
             "sleep 2"
         )
 
