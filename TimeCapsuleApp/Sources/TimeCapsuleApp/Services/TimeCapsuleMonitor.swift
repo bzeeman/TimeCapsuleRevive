@@ -9,14 +9,18 @@ final class TimeCapsuleMonitor {
     var shares: [SMBShare] = []
     var lastEvent: String = ""
     var isChecking = false
+    var isScanning = false
+    var discoveredDevices: [TimeCapsuleDevice] = []
     var settings: AppSettings
 
     private var monitorTask: Task<Void, Never>?
+    private var browserTask: Task<Void, Never>?
     private let ssh = SSHService()
 
     init() {
-        self.settings = AppSettings.load()
-        self.device = TimeCapsuleDevice(host: settings.host, name: "Time Capsule")
+        let loaded = AppSettings.load()
+        self.settings = loaded
+        self.device = TimeCapsuleDevice(host: loaded.host, name: "Time Capsule")
     }
 
     // MARK: - Monitoring
@@ -47,9 +51,10 @@ final class TimeCapsuleMonitor {
 
         let host = settings.host
 
-        // Check if port 445 is open (SMBv3 running)
-        let sambaUp = await checkPort(host: host, port: 445, timeout: 5)
+        // Samba binds directly to port 445 (old wcifsfs killed at startup)
+        // SSH on port 22 tells us the device is reachable
         let sshUp = await checkPort(host: host, port: 22, timeout: 5)
+        let sambaUp = await checkPort(host: host, port: 445, timeout: 5)
 
         device.isOnline = sshUp || sambaUp
         device.isSambaRunning = sambaUp
@@ -60,7 +65,9 @@ final class TimeCapsuleMonitor {
             await startSamba()
         } else if device.isSambaRunning {
             log("SMBv3 active")
-        } else if !device.isOnline {
+        } else if device.isOnline {
+            log("Online — Samba not running")
+        } else {
             log("Time Capsule offline")
         }
     }
@@ -68,13 +75,13 @@ final class TimeCapsuleMonitor {
     // MARK: - Actions
 
     func startSamba() async {
+        log("Starting Samba via SSH...")
         do {
-            let output = try await ssh.runCommand(
+            _ = try await ssh.runCommand(
                 host: settings.host,
                 command: "/Volumes/dk2/samba/rc_samba.sh"
             )
-            log("Samba started")
-            // Recheck status
+            log("Samba start command sent — rechecking...")
             try? await Task.sleep(for: .seconds(3))
             await checkStatus()
         } catch {
@@ -126,6 +133,87 @@ final class TimeCapsuleMonitor {
                 }
         } catch {
             return []
+        }
+    }
+
+    // MARK: - Discovery
+
+    func scanForDevices() {
+        browserTask?.cancel()
+        discoveredDevices = []
+        isScanning = true
+
+        browserTask = Task {
+            let descriptor = NWBrowser.Descriptor.bonjour(type: "_airport._tcp", domain: nil)
+            let browser = NWBrowser(for: descriptor, using: .tcp)
+
+            let results = AsyncStream<NWBrowser.Result> { continuation in
+                browser.browseResultsChangedHandler = { results, _ in
+                    for result in results {
+                        continuation.yield(result)
+                    }
+                }
+                browser.stateUpdateHandler = { state in
+                    if case .failed = state { continuation.finish() }
+                }
+                browser.start(queue: .main)
+
+                continuation.onTermination = { _ in
+                    browser.cancel()
+                }
+            }
+
+            // Collect results for a few seconds
+            let deadline = Task {
+                try? await Task.sleep(for: .seconds(5))
+            }
+
+            var seen = Set<String>()
+            for await result in results {
+                if Task.isCancelled { break }
+                if case .service(let name, _, _, _) = result.endpoint {
+                    guard !seen.contains(name) else { continue }
+                    seen.insert(name)
+
+                    // Resolve the endpoint to get the host address
+                    if let host = await resolveEndpoint(result.endpoint) {
+                        let device = TimeCapsuleDevice(host: host, name: name)
+                        discoveredDevices.append(device)
+                    }
+                }
+                if deadline.isCancelled { break }
+            }
+
+            // Wait for the scan window if still running
+            await deadline.value
+            browser.cancel()
+            isScanning = false
+            log("Found \(discoveredDevices.count) device(s)")
+        }
+    }
+
+    private func resolveEndpoint(_ endpoint: NWEndpoint) async -> String? {
+        await withCheckedContinuation { cont in
+            let connection = NWConnection(to: endpoint, using: .tcp)
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    if let path = connection.currentPath,
+                       let remoteEndpoint = path.remoteEndpoint,
+                       case .hostPort(let host, _) = remoteEndpoint {
+                        connection.cancel()
+                        cont.resume(returning: "\(host)")
+                    } else {
+                        connection.cancel()
+                        cont.resume(returning: nil)
+                    }
+                case .failed, .cancelled:
+                    cont.resume(returning: nil)
+                default:
+                    break
+                }
+            }
+            connection.start(queue: .main)
         }
     }
 

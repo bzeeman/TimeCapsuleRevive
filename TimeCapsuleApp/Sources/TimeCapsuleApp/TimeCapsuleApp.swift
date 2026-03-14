@@ -8,14 +8,13 @@ struct TimeCapsuleReviveApp: App {
         MenuBarExtra {
             MenuBarView()
                 .environment(monitor)
+                .task {
+                    monitor.startMonitoring()
+                }
         } label: {
             Label("Time Capsule", systemImage: menuBarIcon)
         }
-
-        Settings {
-            SettingsView()
-                .environment(monitor)
-        }
+        .menuBarExtraStyle(.window)
     }
 
     private var menuBarIcon: String {
@@ -26,12 +25,5 @@ struct TimeCapsuleReviveApp: App {
             return "externaldrive.fill.badge.exclamationmark"
         }
         return "externaldrive.badge.xmark"
-    }
-
-    init() {
-        // Start monitoring on launch
-        Task { @MainActor in
-            monitor.startMonitoring()
-        }
     }
 }

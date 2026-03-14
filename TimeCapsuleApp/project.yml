@@ -1,0 +1,40 @@
+name: TimeCapsuleApp
+options:
+  bundleIdPrefix: com.timecapsulerevive
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: false
+
+packages:
+  libssh2-spm:
+    url: https://github.com/Lakr233/libssh2-spm
+    from: "2.0.3"
+
+targets:
+  TimeCapsuleApp:
+    type: application
+    platform: macOS
+    productName: "TimeCapsuleRevive"
+    sources:
+      - path: Sources/TimeCapsuleApp
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.timecapsulerevive.app
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        INFOPLIST_FILE: Sources/TimeCapsuleApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: TimeCapsuleApp.entitlements
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_ALLOWED: true
+        PRODUCT_NAME: "TimeCapsuleRevive"
+        GENERATE_INFOPLIST_FILE: false
+        COMBINE_HIDPI_IMAGES: true
+    dependencies:
+      - sdk: Network.framework
+      - sdk: Security.framework
+      - package: libssh2-spm
+        product: CSSH2

@@ -8,11 +8,53 @@ struct SettingsView: View {
     @State private var interval = 120.0
     @State private var autoStart = true
     @State private var saved = false
+    @State private var manualEntry = false
 
     var body: some View {
         Form {
             Section("Time Capsule") {
-                TextField("IP Address", text: $host, prompt: Text("192.168.1.x"))
+                if manualEntry {
+                    TextField("IP Address", text: $host, prompt: Text("192.168.1.x"))
+                    Button("Scan Network Instead") {
+                        manualEntry = false
+                        monitor.scanForDevices()
+                    }
+                } else {
+                    if monitor.isScanning {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Scanning network...")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if !monitor.discoveredDevices.isEmpty {
+                        Picker("Device", selection: $host) {
+                            Text("Select a device…")
+                                .tag("")
+                            ForEach(monitor.discoveredDevices) { device in
+                                Text("\(device.name) (\(device.host))")
+                                    .tag(device.host)
+                            }
+                        }
+                    } else if !monitor.isScanning {
+                        Text("No devices found")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Button("Rescan") {
+                            monitor.scanForDevices()
+                        }
+                        .disabled(monitor.isScanning)
+
+                        Button("Enter Manually") {
+                            manualEntry = true
+                        }
+                    }
+                }
+
                 SecureField("Password", text: $password, prompt: Text("AirPort admin password"))
                     .help("Stored in your macOS Keychain")
             }
@@ -37,15 +79,20 @@ struct SettingsView: View {
                     }
                     .keyboardShortcut(.return)
                     .buttonStyle(.borderedProminent)
+                    .disabled(host.isEmpty)
                 }
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: 280)
+        .frame(width: 420, height: 320)
         .onAppear {
             host = monitor.settings.host
             interval = monitor.settings.checkInterval
             autoStart = monitor.settings.autoStart
+            manualEntry = !host.isEmpty
+            if host.isEmpty {
+                monitor.scanForDevices()
+            }
         }
     }
 

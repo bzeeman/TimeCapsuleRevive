@@ -19,7 +19,7 @@ struct SMBShare: Identifiable, Codable {
 struct AppSettings: Codable {
     var host: String = ""
     var checkInterval: TimeInterval = 120
-    var autoStart: Bool = true
+    var autoStart: Bool = false
 
     private static let key = "TimeCapsuleReviveSettings"
 
@@ -32,7 +32,7 @@ struct AppSettings: Codable {
 
     func save() {
         if let data = try? JSONEncoder().encode(self) {
-            UserDefaults.standard.set(data, forKey: key)
+            UserDefaults.standard.set(data, forKey: AppSettings.key)
         }
     }
 }

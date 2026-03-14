@@ -3,17 +3,31 @@
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>LSUIElement</key>
-    <true/>
-    <key>CFBundleName</key>
-    <string>TimeCapsule Revive</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
-    <string>com.timecapsulerevive.app</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundleDisplayName</key>
+    <string>TimeCapsule Revive</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
     <key>NSHumanReadableCopyright</key>
     <string>MIT License</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>TimeCapsule Revive needs to scan your local network to discover Apple Time Capsule devices.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_airport._tcp</string>
+    </array>
 </dict>
 </plist>

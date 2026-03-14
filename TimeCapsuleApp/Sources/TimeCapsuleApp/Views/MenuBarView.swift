@@ -21,16 +21,23 @@ struct MenuBarView: View {
             Divider()
 
             // Footer
-            Button("Settings...") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            }
-            .keyboardShortcut(",")
+            HStack {
+                Button("Settings...") {
+                    SettingsWindowController.shared.show(monitor: monitor)
+                }
+                .keyboardShortcut(",")
 
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
+                Spacer()
+
+                Button("Quit") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .keyboardShortcut("q")
             }
-            .keyboardShortcut("q")
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
+        .frame(width: 280)
     }
 
     // MARK: - Sections

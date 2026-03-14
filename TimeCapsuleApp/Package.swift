@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "TimeCapsuleApp",
-            path: "Sources/TimeCapsuleApp"
+            path: "Sources/TimeCapsuleApp",
+            exclude: ["Info.plist"]
         ),
     ]
 )
